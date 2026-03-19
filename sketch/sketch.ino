@@ -24,11 +24,17 @@ static const unsigned char PROGMEM image_wifi_bits[] = {0x01,0xf0,0x00,0x06,0x0c
 // Replace the next variables with your SSID/Password combination
 const char* ssid = "Fersadi88";
 const char* password = "Evan808080";
+bool is_wifi_connected = false;
+const unsigned long reconnect_wifi_delay_period = 5000;
 
 // Add your MQTT Broker IP address, example:
 //const char* mqtt_server = "192.168.1.144";
-const char* mqtt_server = "192.168.0.10";
+const char* broker_ip = "192.168.0.10";
+const int broker_port = 3008;
 bool is_mqtt_connected = false;
+
+//scheduler vars
+unsigned long startMillis;  //some global variables available anywhere in the program
 
 //wifi
 WiFiClient espClient;
@@ -38,7 +44,7 @@ char msg[50];
 int value = 0;
 
 //topics
-char* drive_topic = "esp32/drive";
+char* topics[] = {"esp32/drive"};
 
 //Additional
 int battery_cap = 2200 ;//mAh
@@ -309,14 +315,13 @@ void pick_option_display(int index) {
 
 //function below have the same return in case 0, 
 //so you can use either two of them if necessary
-
 void pick_display(int index) {
    switch (index) {
       case 0:
          display_main_menu();
         break;
       case 1:
-        display_mqtt(mqtt_server, is_mqtt_connected);
+        display_mqtt(broker_ip, is_mqtt_connected);
         break;
       case 2:
         display_wifi(ssid, password);
@@ -411,21 +416,41 @@ void application_menu() {
     }
 }
 
+void connect_to_broker(char* *topics) {
+  if (!is_mqtt_connected && is_wifi_connected) {
+    if (client.connect("ESP32WROOM_Client")) {
+      is_mqtt_connected = true;
+      for (byte i = 0; i < (sizeof(topics) / sizeof(topics[0])); i++) {
+      // do something with myValues[i]
+      client.subscribe(topics[i]);
+      }
+    } else {
+      is_mqtt_connected = false;
+    }
+  }
+}
 
-void setup() {
-  // sets the pins as outputs:
-  init_drv8833();
-  init_buzzer();
-  Wire.begin();
-  ina219.begin();
-  init_ssd1306();
-  init_menu_buttons();
-  setup_wifi();
-  client.setServer(mqtt_server, 3008);
-  client.setCallback(callback);
+//scheduler
+bool is_time_to_wifi_reconnect() { //reconnect every 500 milsec if still unconnected
+   //millis() get the current "time" (actually the number of milliseconds since the program started)
+  if (millis() - startMillis >= reconnect_wifi_delay_period && !is_wifi_connected)  //test whether the period has elapsed
+  {
+    return true;
+  } else {
+    return false;
+  }
+}
 
-  Serial.begin(9600);
-  Serial.println("Testing buttons...");
+//note that wifi needs a delay time every Wifi.begin execution
+void connect_to_wifi(const char* ssid, const char* password) {
+  // We start by connecting to a WiFi network
+  WiFi.begin(ssid, password);
+
+  if (WiFi.status() == WL_CONNECTED) {
+    is_wifi_connected = true;
+  } else {
+    is_wifi_connected = false;
+  }
 }
 
 void callback(char* topic, byte* message, unsigned int length) {
@@ -459,65 +484,29 @@ void callback(char* topic, byte* message, unsigned int length) {
   */
 }
 
-void reconnect() {
-  
-  // Loop until we're reconnected
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
-    if (client.connect("ESP8266Client")) {
-      Serial.println("connected");
-      is_mqtt_connected = true;
-
-      // Subscribe
-      client.subscribe("esp32/drive");
-    } else {
-       is_mqtt_connected = false;
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(500);
-    }
-  }
+void setup_mqtt_client(const char* broker_ip, const int broker_port) {
+  client.setServer(broker_ip, broker_port);
+  client.setCallback(callback);
 }
 
-void setup_wifi() {
-  delay(10);
-  // We start by connecting to a WiFi network
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+void setup() {
+  // sets the pins as outputs:
+  init_drv8833();
+  init_buzzer();
+  init_ssd1306();
+  init_menu_buttons();
+  Wire.begin();
+  ina219.begin();
+  setup_mqtt_client(broker_ip, broker_port);
+  Serial.begin(9600);
+  startMillis = millis();
 }
-
 
 void loop() {
-  application_menu();
-  if (!client.connected()) {
-    reconnect();
+  application_menu();   
+ // connect_to_broker(topics);
+     if (is_time_to_wifi_reconnect()) {
+    connect_to_wifi(ssid, password);
   }
-/*
-  long now = millis();
-  if (now - lastMsg > 5000) {
-    lastMsg = , LOW);
-  digitalWrite(motor3Pin2, HIGH); 
-        digitalWrite(motor4Pin1, LOW);
-  digitalWrite(motor4Pin2, HIGH); 
-}
-now;
-  }
-  */
-    client.loop();
+  //client.loop();
 }
