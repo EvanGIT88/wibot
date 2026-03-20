@@ -412,7 +412,7 @@ void application_menu() {
           current_state = home_state;
         }
       }
-
+//niggaaaaaaaaaaaaaaaaaaaaaaaaaa
       upper_last_steady = upper_button_current;
       lower_last_steady = lower_button_current;
     }
