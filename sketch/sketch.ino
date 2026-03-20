@@ -4,6 +4,11 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include "BluetoothSerial.h"
+
+// Check if Bluetooth is availabl
+
+//Bluetooth
 
 //Oled & ina219 config
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -25,7 +30,7 @@ static const unsigned char PROGMEM image_wifi_bits[] = {0x01,0xf0,0x00,0x06,0x0c
 const char* ssid = "Fersadi88";
 const char* password = "Evan808080";
 bool is_wifi_connected = false;
-const unsigned long reconnect_wifi_delay_period = 5000;
+const unsigned long reconnect_wifi_delay_period = 500;
 
 // Add your MQTT Broker IP address, example:
 //const char* mqtt_server = "192.168.1.144";
@@ -389,7 +394,6 @@ void application_menu() {
         if (upper_pressed) {
           current_state++; 
           //Serial.print(current_state);
-          Serial.println("The upper button is released when is_on_display = false");
           //reset if incremented beyond total state, so it looped the options
           if (current_state > total_state) {
             current_state = 0;
@@ -398,14 +402,12 @@ void application_menu() {
 
         //mean if user clicked view/lower button
         if (lower_pressed) {
-          Serial.println("The lower button is released when is_on_display = false");
           is_on_display = true;
         }
       } else {
         pick_display(current_state);
 
         if (lower_pressed) {
-          Serial.println("The lower button is released when is_on_display = true");
           is_on_display = false;
           current_state = home_state;
         }
@@ -430,33 +432,19 @@ void connect_to_broker(char* *topics) {
   }
 }
 
-//scheduler
-bool is_time_to_wifi_reconnect() { //reconnect every 500 milsec if still unconnected
-   //millis() get the current "time" (actually the number of milliseconds since the program started)
-  if (millis() - startMillis >= reconnect_wifi_delay_period && !is_wifi_connected)  //test whether the period has elapsed
-  {
-    return true;
-  } else {
-    return false;
-  }
-}
-
 //note that wifi needs a delay time every Wifi.begin execution
 void connect_to_wifi(const char* ssid, const char* password) {
   // We start by connecting to a WiFi network
   WiFi.begin(ssid, password);
 
-  if (WiFi.status() == WL_CONNECTED) {
-    is_wifi_connected = true;
-  } else {
-    is_wifi_connected = false;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
 }
 
 void callback(char* topic, byte* message, unsigned int length) {
-  Serial.print("Message arrived on topic: ");
   Serial.print(topic);
-  Serial.print(". Message: ");
   String messageTemp;
   
   for (int i = 0; i < length; i++) {
@@ -497,16 +485,13 @@ void setup() {
   init_menu_buttons();
   Wire.begin();
   ina219.begin();
+ // SerialBT.begin(device_name);  //Bluetooth device name
   setup_mqtt_client(broker_ip, broker_port);
   Serial.begin(9600);
-  startMillis = millis();
 }
 
 void loop() {
   application_menu();   
- // connect_to_broker(topics);
-     if (is_time_to_wifi_reconnect()) {
-    connect_to_wifi(ssid, password);
-  }
+  connect_to_broker(topics);
   //client.loop();
 }
