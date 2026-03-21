@@ -6,8 +6,23 @@
 #include <PubSubClient.h>
 #include "BluetoothSerial.h"
 
-// Check if Bluetooth is availabl
+//Timer
+unsigned long startMillis;  //some global variables available anywhere in the program
+unsigned long currentMillis;
 
+String device_name = "ESP32-BT-Slave";
+
+// Check if Bluetooth is available
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+
+// Check Serial Port Profile
+#if !defined(CONFIG_BT_SPP_ENABLED)
+#error Serial Port Profile for Bluetooth is not available or not enabled. It is only available for the ESP32 chip.
+#endif
+
+BluetoothSerial SerialBT;
 //Bluetooth
 
 //Oled & ina219 config
@@ -27,19 +42,16 @@ static const unsigned char PROGMEM image_music_radio_broadcast_bits[] = {0x07,0x
 static const unsigned char PROGMEM image_wifi_bits[] = {0x01,0xf0,0x00,0x06,0x0c,0x00,0x18,0x03,0x00,0x21,0xf0,0x80,0x46,0x0c,0x40,0x88,0x02,0x20,0x10,0xe1,0x00,0x23,0x18,0x80,0x04,0x04,0x00,0x08,0x42,0x00,0x01,0xb0,0x00,0x02,0x08,0x00,0x00,0x40,0x00,0x00,0xa0,0x00,0x00,0x40,0x00,0x00,0x00,0x00};
 
 // Replace the next variables with your SSID/Password combination
-const char* ssid = "Fersadi88";
-const char* password = "Evan808080";
+const char* ssid = "realmeC67";
+const char* password = "123123wow";
 bool is_wifi_connected = false;
-const unsigned long reconnect_wifi_delay_period = 500;
+const unsigned long connecting_timeout = 500;
 
 // Add your MQTT Broker IP address, example:
 //const char* mqtt_server = "192.168.1.144";
-const char* broker_ip = "192.168.0.10";
+const char* broker_ip = "10.170.81.150";
 const int broker_port = 3008;
 bool is_mqtt_connected = false;
-
-//scheduler vars
-unsigned long startMillis;  //some global variables available anywhere in the program
 
 //wifi
 WiFiClient espClient;
@@ -106,6 +118,11 @@ void init_drv8833() {
   pinMode(sleepBackPin, OUTPUT);
 }
 
+void init_mqtt_client(const char* broker_ip, const int broker_port) {
+  client.setServer(broker_ip, broker_port);
+  client.setCallback(callback);
+}
+
 void init_menu_buttons() {
   pinMode(upper_button, INPUT_PULLUP); // upper button
   pinMode(lower_button, INPUT_PULLUP); //bottom button
@@ -133,10 +150,12 @@ void init_buzzer(){
 
 //DRIVERS
 void driver_drv8833_basic (char pin1, char pin2) {
-  //backward, forward, stop
-  //backward: pin1: high, pin2: low
-  //forward: pin1: low, pin2: high
-  //stop: pin1: low, pin2: low
+  /*
+  backward, forward, stop
+  backward: pin1: high, pin2: low
+  forward: pin1: low, pin2: high
+  stop: pin1: low, pin2: low
+  */
   digitalWrite(motor1Pin1, pin1);
   digitalWrite(motor1Pin2, pin2); 
   digitalWrite(motor2Pin1, pin1);
@@ -158,14 +177,13 @@ void driver_drv8833_mode(int mode) {
   digitalWrite(sleepBackPin, mode);
 }
 
+
+/****DISPLAY FUNCTIONS****/
 void display_main_menu() {
   display.clearDisplay();
   display.fillScreen(0x0);
-  // battery_charging
   display.drawBitmap(94, 9, image_battery_charging_bits, 24, 16, WHITE);
-  // wifi
   display.drawBitmap(53, 9, image_wifi_bits, 19, 16, WHITE);
-  // music_radio_broadcast
   display.drawBitmap(16, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
   display.display();
 }
@@ -174,13 +192,9 @@ void display_option_battery() {
 //i think oled 0.91 can only be white tho, this is should be constant ("WHITE" value)
   display.clearDisplay();
   display.fillScreen(0x0);
-  // battery_charging
   display.drawBitmap(94, 9, image_battery_charging_bits, 24, 16, WHITE);
-  // wifi
   display.drawBitmap(53, 9, image_wifi_bits, 19, 16, WHITE);
-  // Layer 4
   display.drawCircle(106, 16, 14, WHITE);
-  // music_radio_broadcast
   display.drawBitmap(16, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
   display.display();
 }
@@ -188,13 +202,9 @@ void display_option_battery() {
 void display_option_wifi() {
   display.clearDisplay();
   display.fillScreen(0x0);
-  // battery_charging
   display.drawBitmap(94, 9, image_battery_charging_bits, 24, 16, WHITE);
-  // wifi
   display.drawBitmap(53, 9, image_wifi_bits, 19, 16, WHITE);
-  // Layer 4
   display.drawCircle(62, 15, 14, WHITE);
-  // music_radio_broadcast
   display.drawBitmap(16, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
   display.display();
 }
@@ -202,19 +212,15 @@ void display_option_wifi() {
 void display_option_mqtt() {
   display.clearDisplay();
   display.fillScreen(0x0);
-  // battery_charging
   display.drawBitmap(94, 9, image_battery_charging_bits, 24, 16, WHITE);
-  // wifi
   display.drawBitmap(53, 9, image_wifi_bits, 19, 16, WHITE);
-  // Layer 4
   display.drawCircle(23, 16, 14, WHITE);
-  // music_radio_broadcast
   display.drawBitmap(16, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
   display.display();
 }
 
-//the battery_cap type is hardcoded (mAh)
-void display_battery(float voltage, float current, int battery_cap, float percentage) {
+void display_battery(float voltage, float current, int battery_cap, float percentage) { 
+  //the battery_cap type is hardcoded (mAh)
   display.clearDisplay();
   display.fillScreen(0x0);
   display.drawBitmap(5, 1, image_battery_charging_bits, 48, 32, WHITE);
@@ -235,25 +241,19 @@ void display_battery(float voltage, float current, int battery_cap, float percen
 }
 
 void display_mqtt(const char* broker_ip, bool status) {
-    display.clearDisplay();
+  display.clearDisplay();
   display.fillScreen(0x0);
-  // Layer 2
   display.setTextColor(WHITE);
   display.setTextWrap(false);
   display.setCursor(34, 8);
   display.print("IP:");
-  // Layer 3
   display.setCursor(34, 18);
   display.print("Stat:");
-  // Layer 2 copy 1
   display.setCursor(53, 8);
   display.print(broker_ip);
-  // Layer 2 copy 2
   display.setCursor(66, 18);
   display.print(status);
-  // arrow_right
   display.drawBitmap(115, 4, image_arrow_right_bits, 7, 5, WHITE);
-  // music_radio_broadcast
   display.drawBitmap(12, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
   display.display();
 }
@@ -261,28 +261,22 @@ void display_mqtt(const char* broker_ip, bool status) {
 void display_wifi(const char* ssid, const char* pass) {
   display.clearDisplay();
   display.fillScreen(0x0);
-  // wifi
   display.drawBitmap(9, 8, image_wifi_bits, 19, 16, WHITE);
-  //Layer 2
   display.setTextColor(WHITE);
   display.setTextWrap(false);
   display.setCursor(34, 8);
   display.print("SSID:");
-  //Layer 3
   display.setCursor(34, 18);
   display.print("PW:");
-  //Layer 2 copy 1
   display.setCursor(64, 8);
   display.print(ssid);
-  //Layer 2 copy 2
   display.setCursor(64, 18);
   display.print(pass);
-  //arrow_right
   display.drawBitmap(115, 4, image_arrow_right_bits, 7, 5, WHITE);
   display.display();
 }
 
-//APPLICATIONS
+/****HELPER FUNCTIONS****/
 float get_battery_soc (float voltage) {
   //use voltage corellation
   int total_soc = 11;
@@ -318,9 +312,9 @@ void pick_option_display(int index) {
     }
 }
 
-//function below have the same return in case 0, 
-//so you can use either two of them if necessary
 void pick_display(int index) {
+    //this function have the same return in case 0, 
+   //so you can use either two of them if necessary
    switch (index) {
       case 0:
          display_main_menu();
@@ -344,7 +338,7 @@ void pick_display(int index) {
     }
 }
 
-
+/****APPLICATION/HIGH LEVEL FUNCTIONS****/
 void application_menu() {
   bool debounce;
   bool upper_pressed;
@@ -418,8 +412,9 @@ void application_menu() {
     }
 }
 
+/****CONNECTION FUNCTIONS****/
 void connect_to_broker(char* *topics) {
-  if (!is_mqtt_connected && is_wifi_connected) {
+  if (!is_mqtt_connected) { //remember that we cannot connect to mqtt if is_wifi_connected variable isn't true
     if (client.connect("ESP32WROOM_Client")) {
       is_mqtt_connected = true;
       for (byte i = 0; i < (sizeof(topics) / sizeof(topics[0])); i++) {
@@ -432,15 +427,25 @@ void connect_to_broker(char* *topics) {
   }
 }
 
-//note that wifi needs a delay time every Wifi.begin execution
-void connect_to_wifi(const char* ssid, const char* password) {
+void connect_to_wifi(const char* ssid, const char* password, int timeout = 0) {
+  //note that wifi needs a delay time every Wifi.begin execution
   // We start by connecting to a WiFi network
   WiFi.begin(ssid, password);
-
+  
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+     currentMillis = millis();  //get the current "time" (actually the number of milliseconds since the program started)
+    if (currentMillis - startMillis >= timeout)  //test whether the period has elapsed
+    {
+      is_wifi_connected = false;
+      Serial.print("");
+      Serial.print("Wifi not connected");
+      startMillis = currentMillis;  //IMPORTANT to save the start time of the current LED state.
+      return;
+    }
   }
+      Serial.print("");
+    Serial.print("Wifi connected");
+    is_wifi_connected = true;
 }
 
 void callback(char* topic, byte* message, unsigned int length) {
@@ -472,26 +477,25 @@ void callback(char* topic, byte* message, unsigned int length) {
   */
 }
 
-void setup_mqtt_client(const char* broker_ip, const int broker_port) {
-  client.setServer(broker_ip, broker_port);
-  client.setCallback(callback);
-}
+
+/****PRIMARY FUNCTIONS****/
 
 void setup() {
-  // sets the pins as outputs:
-  init_drv8833();
+  startMillis = millis();  //initial start time
+  init_drv8833(); // sets the pins as outputs:
   init_buzzer();
   init_ssd1306();
   init_menu_buttons();
   Wire.begin();
   ina219.begin();
- // SerialBT.begin(device_name);  //Bluetooth device name
-  setup_mqtt_client(broker_ip, broker_port);
-  Serial.begin(9600);
+  SerialBT.begin(device_name);  //Bluetooth device name
+  connect_to_wifi(ssid, password, connecting_timeout);
+  init_mqtt_client(broker_ip, broker_port);
+  Serial.begin(115200);
 }
 
 void loop() {
   application_menu();   
   connect_to_broker(topics);
-  //client.loop();
+  client.loop();
 }
