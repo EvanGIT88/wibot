@@ -5,6 +5,16 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include "BluetoothSerial.h"
+#include "Org_01.h"
+
+static const unsigned char PROGMEM image_Layer_12_bits[] = {0x80,0x00,0x00,0x80};
+
+const byte numChars = 32;
+char receivedChars[numChars];   // an array to store the received data
+
+boolean newData = false;
+
+int dataNumber = 0;             // new for this version
 
 //Timer
 unsigned long startMillis;  //some global variables available anywhere in the program
@@ -23,7 +33,14 @@ String device_name = "ESP32-BT-Slave";
 #endif
 
 BluetoothSerial SerialBT;
-//Bluetooth
+
+/*
+BLUETOOTH COMMAND CODES
+Its important to change these command value below as this is just an example!
+*/
+//WIFI
+const int start_wifi_reconn = 212912812;
+const int stop_wifi_reconn = 201829232;
 
 //Oled & ina219 config
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -39,17 +56,17 @@ unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 static const unsigned char PROGMEM image_arrow_right_bits[] = {0x08,0x04,0xfe,0x04,0x08};
 static const unsigned char PROGMEM image_battery_charging_bits[] = {0x00,0x02,0x00,0x0f,0xe4,0xfe,0x10,0x0c,0x01,0x10,0x08,0x01,0x70,0x18,0x01,0x80,0x30,0x01,0x80,0x3f,0x81,0x80,0x7f,0x01,0x80,0x03,0x01,0x80,0x06,0x01,0x70,0x04,0x01,0x10,0x0c,0x01,0x10,0x08,0x01,0x0f,0xd3,0xfe,0x00,0x10,0x00,0x00,0x00,0x00};
 static const unsigned char PROGMEM image_music_radio_broadcast_bits[] = {0x07,0xc0,0x18,0x30,0x27,0xc8,0x48,0x24,0x93,0x92,0xa4,0x4a,0xa9,0x2a,0xa3,0x8a,0x06,0xc0,0x03,0x80,0x01,0x00,0x03,0x80,0x02,0x80,0x06,0xc0,0x04,0x40,0x00,0x00};
-static const unsigned char PROGMEM image_wifi_bits[] = {0x01,0xf0,0x00,0x06,0x0c,0x00,0x18,0x03,0x00,0x21,0xf0,0x80,0x46,0x0c,0x40,0x88,0x02,0x20,0x10,0xe1,0x00,0x23,0x18,0x80,0x04,0x04,0x00,0x08,0x42,0x00,0x01,0xb0,0x00,0x02,0x08,0x00,0x00,0x40,0x00,0x00,0xa0,0x00,0x00,0x40,0x00,0x00,0x00,0x00};
+static const unsigned char PROGMEM image_bluetooth_bits[] = {0x01,0x00,0x02,0x80,0x02,0x40,0x22,0x20,0x12,0x20,0x0a,0x40,0x06,0x80,0x03,0x00,0x06,0x80,0x0a,0x40,0x12,0x20,0x22,0x20,0x02,0x40,0x02,0x80,0x01,0x00,0x00,0x00};
 
 // Replace the next variables with your SSID/Password combination
-const char* ssid = "realmeC67";
-const char* password = "123123wow";
+const char* ssid = "Fersadi88";
+const char* password = "Evan808080";
 bool is_wifi_connected = false;
-const unsigned long connecting_timeout = 500;
+const unsigned long connecting_timeout = 5000;
 
 // Add your MQTT Broker IP address, example:
 //const char* mqtt_server = "192.168.1.144";
-const char* broker_ip = "10.170.81.150";
+const char* broker_ip = "192.168.0.10";
 const int broker_port = 3008;
 bool is_mqtt_connected = false;
 
@@ -183,7 +200,7 @@ void display_main_menu() {
   display.clearDisplay();
   display.fillScreen(0x0);
   display.drawBitmap(94, 9, image_battery_charging_bits, 24, 16, WHITE);
-  display.drawBitmap(53, 9, image_wifi_bits, 19, 16, WHITE);
+  display.drawBitmap(53, 9, image_bluetooth_bits, 19, 16, WHITE);
   display.drawBitmap(16, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
   display.display();
 }
@@ -193,90 +210,159 @@ void display_option_battery() {
   display.clearDisplay();
   display.fillScreen(0x0);
   display.drawBitmap(94, 9, image_battery_charging_bits, 24, 16, WHITE);
-  display.drawBitmap(53, 9, image_wifi_bits, 19, 16, WHITE);
+  display.drawBitmap(53, 9, image_bluetooth_bits, 19, 16, WHITE);
   display.drawCircle(106, 16, 14, WHITE);
   display.drawBitmap(16, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
   display.display();
 }
 
-void display_option_wifi() {
+void display_listen_bt() {
+    display.clearDisplay();
+    display.fillScreen(0x0);
+
+    // Layer 2
+    display.setTextColor(WHITE);
+    display.setTextWrap(false);
+    display.setFont(&Org_01);
+    display.setCursor(40, 18);
+    display.print("Listening...");
+    display.display();
+}
+
+void display_option_bluetooth() {
   display.clearDisplay();
   display.fillScreen(0x0);
   display.drawBitmap(94, 9, image_battery_charging_bits, 24, 16, WHITE);
-  display.drawBitmap(53, 9, image_wifi_bits, 19, 16, WHITE);
+  display.drawBitmap(53, 9, image_bluetooth_bits, 19, 16, WHITE);
   display.drawCircle(62, 15, 14, WHITE);
   display.drawBitmap(16, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
   display.display();
 }
 
-void display_option_mqtt() {
+void display_option_broker_wifi() {
   display.clearDisplay();
   display.fillScreen(0x0);
   display.drawBitmap(94, 9, image_battery_charging_bits, 24, 16, WHITE);
-  display.drawBitmap(53, 9, image_wifi_bits, 19, 16, WHITE);
+  display.drawBitmap(53, 9, image_bluetooth_bits, 19, 16, WHITE);
   display.drawCircle(23, 16, 14, WHITE);
   display.drawBitmap(16, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
   display.display();
 }
 
 void display_battery(float voltage, float current, int battery_cap, float percentage) { 
+     display.clearDisplay();
   //the battery_cap type is hardcoded (mAh)
-  display.clearDisplay();
-  display.fillScreen(0x0);
-  display.drawBitmap(5, 1, image_battery_charging_bits, 48, 32, WHITE);
-  display.clearDisplay();
-  display.setTextColor(WHITE);
-  display.setTextSize(1);
-  display.setTextWrap(false);
-  display.setCursor(22, 13);
-  display.print(int(percentage)); display.println("%"); 
-  display.setCursor(59, 5);
-  display.print(int(voltage)); display.println("V");
-  display.setCursor(75, 5);
-  display.print(int(current)); display.println("A");
-  display.setCursor(59, 18);
-  display.print(battery_cap); display.println("mAh");
-  display.drawBitmap(117, 3, image_arrow_right_bits, 7, 5, WHITE);
-  display.display();
+    display.fillScreen(0x0);
+
+    // Layer 1
+    display.setTextColor(WHITE);
+    display.setTextSize(2);
+    display.setTextWrap(false);
+    display.setFont(&Org_01);
+    display.setCursor(6, 15);
+    display.print(int(percentage) + "%");
+
+    // arrow_right
+    display.drawBitmap(119, 2, image_arrow_right_bits, 7, 5, WHITE);
+
+    // Layer 3
+    display.setTextSize(1);
+    display.setCursor(48, 11);
+    display.print(int(voltage) + "V");
+
+    // Layer 4
+    display.setCursor(48, 18);
+    display.print(int(current) + "A");
+
+    // Layer 3 copy 1
+    display.setCursor(6, 24);
+    display.print(battery_cap + "mAh");
+       display.display();
 }
 
-void display_mqtt(const char* broker_ip, bool status) {
-  display.clearDisplay();
-  display.fillScreen(0x0);
-  display.setTextColor(WHITE);
-  display.setTextWrap(false);
-  display.setCursor(34, 8);
-  display.print("IP:");
-  display.setCursor(34, 18);
-  display.print("Stat:");
-  display.setCursor(53, 8);
-  display.print(broker_ip);
-  display.setCursor(66, 18);
-  display.print(status);
-  display.drawBitmap(115, 4, image_arrow_right_bits, 7, 5, WHITE);
-  display.drawBitmap(12, 9, image_music_radio_broadcast_bits, 15, 16, WHITE);
-  display.display();
-}
+void display_broker_and_wifi(const char* broker_ip, const int broker_port, bool broker_status, const char* ssid, const char* pass, bool wifi_status) {
+   display.clearDisplay();
+    display.fillScreen(0x0);
 
-void display_wifi(const char* ssid, const char* pass) {
-  display.clearDisplay();
-  display.fillScreen(0x0);
-  display.drawBitmap(9, 8, image_wifi_bits, 19, 16, WHITE);
-  display.setTextColor(WHITE);
-  display.setTextWrap(false);
-  display.setCursor(34, 8);
-  display.print("SSID:");
-  display.setCursor(34, 18);
-  display.print("PW:");
-  display.setCursor(64, 8);
-  display.print(ssid);
-  display.setCursor(64, 18);
-  display.print(pass);
-  display.drawBitmap(115, 4, image_arrow_right_bits, 7, 5, WHITE);
+    // Layer 2 copy 1
+    display.setTextColor(WHITE);
+    display.setTextWrap(false);
+    display.setFont(&Org_01);
+    display.setCursor(6, 11);
+    display.print(broker_ip);
+
+    // Layer 2 copy 2
+    display.setCursor(57, 11);
+    display.print(broker_port);
+
+    // arrow_right
+    display.drawBitmap(119, 2, image_arrow_right_bits, 7, 5, WHITE);
+
+    // Layer 2 copy 4
+    display.setCursor(6, 25);
+    display.print(ssid);
+
+    // Layer 2 copy 3
+    display.setCursor(6, 18);
+    display.print(pass);
+
+    // Layer 10
+    display.drawLine(93, 7, 93, 11, WHITE);
+
+    // Layer 11
+    display.setCursor(96, 21);
+    display.print(broker_status);
+
+    // Layer 12
+    display.drawBitmap(54, 8, image_Layer_12_bits, 1, 4, WHITE);
+
+    // Layer 13
+    display.drawLine(93, 14, 93, 25, WHITE);
+
+    // Layer 11 copy 1
+    display.setCursor(96, 11);
+    display.print(wifi_status);
   display.display();
 }
 
 /****HELPER FUNCTIONS****/
+void recvWithEndMarker() {
+    static byte ndx = 0;
+    char endMarker = '\n';
+    char rc;
+    
+    if (SerialBT.available() > 0) {
+        rc = SerialBT.read();
+
+        if (rc != endMarker) {
+            receivedChars[ndx] = rc;
+            ndx++;
+            if (ndx >= numChars) {
+                ndx = numChars - 1;
+            }
+        }
+        else {
+            receivedChars[ndx] = '\0'; // terminate the string
+            ndx = 0;
+            newData = true;
+        }
+    }
+}
+
+void assignNewNumber() {
+    if (newData == true) {
+        dataNumber = 0;             // new for this version
+        dataNumber = atoi(receivedChars);   // new for this version
+        /*
+        Serial.print("This just in ... ");
+        Serial.println(receivedChars);
+        Serial.print("Data as Number ... ");    // new for this version
+        Serial.println(dataNumber);     // new for this version
+        */
+        newData = false;
+    }
+}
+
 float get_battery_soc (float voltage) {
   //use voltage corellation
   int total_soc = 11;
@@ -299,11 +385,11 @@ void pick_option_display(int index) {
         break;
       case 1:
         // statements
-          display_option_mqtt();
+          display_option_broker_wifi();
         break;
       case 2:
         // statements
-          display_option_wifi();
+          display_option_bluetooth();
         break;
             case 3:
         // statements
@@ -320,10 +406,10 @@ void pick_display(int index) {
          display_main_menu();
         break;
       case 1:
-        display_mqtt(broker_ip, is_mqtt_connected);
+      display_broker_and_wifi(broker_ip, broker_port, is_mqtt_connected, ssid, password, is_wifi_connected);
         break;
       case 2:
-        display_wifi(ssid, password);
+        display_listen_bt();
         break;
       case 3: 
       {
@@ -414,7 +500,7 @@ void application_menu() {
 
 /****CONNECTION FUNCTIONS****/
 void connect_to_broker(char* *topics) {
-  if (!is_mqtt_connected) { //remember that we cannot connect to mqtt if is_wifi_connected variable isn't true
+  if (!is_mqtt_connected && is_wifi_connected) { //remember that we cannot connect to mqtt if is_wifi_connected variable isn't true
     if (client.connect("ESP32WROOM_Client")) {
       is_mqtt_connected = true;
       for (byte i = 0; i < (sizeof(topics) / sizeof(topics[0])); i++) {
@@ -427,25 +513,57 @@ void connect_to_broker(char* *topics) {
   }
 }
 
-void connect_to_wifi(const char* ssid, const char* password, int timeout = 0) {
-  //note that wifi needs a delay time every Wifi.begin execution
+void connect_to_wifi(const char* ssid, const char* password, const unsigned long timeout = 0, bool is_listening_bluetooth = false) {
+  //NOTE: wifi needs an actual delay time every Wifi.begin execution
   // We start by connecting to a WiFi network
   WiFi.begin(ssid, password);
+  is_wifi_connected = true; // set starting value
+
+  if (is_listening_bluetooth == true) {
+    SerialBT.begin(device_name);
+    Serial.println("");
+    Serial.print("Bluetooth is ON");
+  }
   
+  startMillis = millis();  //initial start time
   while (WiFi.status() != WL_CONNECTED) {
-     currentMillis = millis();  //get the current "time" (actually the number of milliseconds since the program started)
-    if (currentMillis - startMillis >= timeout)  //test whether the period has elapsed
+    currentMillis = millis();  //get the current "time" (actually the number of milliseconds since the program started)
+    Serial.println("");
+    if (currentMillis - startMillis >= timeout && is_listening_bluetooth == false)  //test whether the period has elapsed
     {
       is_wifi_connected = false;
-      Serial.print("");
-      Serial.print("Wifi not connected");
       startMillis = currentMillis;  //IMPORTANT to save the start time of the current LED state.
-      return;
+       Serial.print("Wifi attempt timeout");
+      break;  
+    }
+
+    if (is_listening_bluetooth == true) {
+      recvWithEndMarker(); //read and convert serial data
+      assignNewNumber(); //update dataNumber variable
+      if (dataNumber == stop_wifi_reconn) {
+          Serial.print("Wifi attempt aborted");
+                is_wifi_connected = false;
+          dataNumber = 0; //reset it
+          break;
+      }
     }
   }
-      Serial.print("");
-    Serial.print("Wifi connected");
-    is_wifi_connected = true;
+
+  if (is_listening_bluetooth == true) {
+    SerialBT.flush();  
+    SerialBT.disconnect();
+    SerialBT.end();
+        Serial.println("");
+    Serial.print("Bluetooth is OFF");
+  }
+}
+
+void bt_commands_register(int code) {
+    switch (code) {
+      case start_wifi_reconn: 
+      connect_to_wifi(ssid, password, 0, true);
+      break;
+    }
 }
 
 void callback(char* topic, byte* message, unsigned int length) {
@@ -481,20 +599,20 @@ void callback(char* topic, byte* message, unsigned int length) {
 /****PRIMARY FUNCTIONS****/
 
 void setup() {
-  startMillis = millis();  //initial start time
+  Serial.begin(9600);
   init_drv8833(); // sets the pins as outputs:
   init_buzzer();
   init_ssd1306();
   init_menu_buttons();
   Wire.begin();
   ina219.begin();
-  SerialBT.begin(device_name);  //Bluetooth device name
-  connect_to_wifi(ssid, password, connecting_timeout);
+  Serial.printf("The device with name \"%s\" is started.\nNow you can pair it with Bluetooth!\n", device_name.c_str());
+  connect_to_wifi(ssid, password, 0, true);
   init_mqtt_client(broker_ip, broker_port);
-  Serial.begin(115200);
 }
 
 void loop() {
+  //background high level tasks
   application_menu();   
   connect_to_broker(topics);
   client.loop();
